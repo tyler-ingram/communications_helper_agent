@@ -32,6 +32,7 @@ Clone the repo and install dependencies:
 ```bash
 git clone https://github.com/tyler-ingram/communications_helper_agent.git
 cd communications_helper_agent
+cd backend
 uv sync
 ```
 
