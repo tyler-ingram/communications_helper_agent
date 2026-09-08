@@ -7,7 +7,10 @@ authors = [
     { name = "tyler-ingram", email = "tyingram570@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "lmstudio>=1.5.0",
+    "python-dotenv>=1.2.3",
+]
 
 [project.scripts]
 communications-helper-agent = "communications_helper_agent:main"
