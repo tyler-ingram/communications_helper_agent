@@ -20,6 +20,7 @@ TODO
 ## Prerequisites
 
 - Python 3.13+
+- Node.js 11.6.2+
 - [`uv`](https://docs.astral.sh/uv/) for dependency management
 - Install LM Studio [from https://lmstudio.ai/](https://lmstudio.ai/docs/developer/core/headless)
 
@@ -35,6 +36,8 @@ cd communications_helper_agent
 cd backend
 uv sync
 lms get qwen/qwen3-4b-2507
+cd ../frontend
+npm install
 ```
 
 To get another model:
@@ -62,5 +65,10 @@ To run the backend lms server to enable model calls use:
 To run a python file:
 ```bash 
 uv run <file_name>
+```
+To start the frontend application:
+```bash
+#In communcications_helper_agent/frontend
+npm start
 ```
 ---
