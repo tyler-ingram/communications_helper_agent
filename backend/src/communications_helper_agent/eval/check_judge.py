@@ -1,5 +1,6 @@
 """Sanity-check the judge before spending money on a full run.
 
+
     uv run python -m communications_helper_agent.eval.check_judge
 
 The idea: build issue lists whose correct score is known BY CONSTRUCTION, then
