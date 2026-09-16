@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Communications Helper Agent</title>
+        <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';"/>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    </head>
+    <body>
+        <h1>Communications Helper Agent</h1>
+        <p>
+            We are currently working on the Communications Helper Agent. Please check back later for updates. <br>
+            Running Node.js <span id="node-version"></span> <br>
+            Chromium <span id="chrome-version"></span> <br>
+            and Electron <span id="electron-version"></span>.
+        </p>
+        <div class = "container">
+            <div class="row">
+                <div class="col d-flex flex-column align-items-center">
+                    <form id="text-transcript">
+                        <label for="transcript" class="form-label">Meeting Transcript: </label>
+                        <textarea id="transcript" name="transcript" rows="10" cols="50" class="form-control"></textarea>
+                        <input type="submit" value="Submit" class="btn btn-primary mt-2">
+                    </form>
+                </div>
+                <div class="col d-flex flex-column align-items-center">
+                    <form id="file-transcript">
+                        <label for="file" class="form-label">Upload Meeting Transcript File: </label>
+                        <input type="file" id="file" name="file" class="form-control mt-2">
+                        <input type="submit" value="Upload" class="btn btn-primary mt-2">
+                    </form>
+                </div>
+                <script src="renderer.js"></script>
+            </div>
+        </div>
+    </body>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+</html>
