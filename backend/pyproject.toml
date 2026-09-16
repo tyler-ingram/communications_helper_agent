@@ -2,12 +2,15 @@
 name = "communications-helper-agent"
 version = "0.1.0"
 description = "Add your description here"
-readme = "README.md"
+readme = "../README.md"
 authors = [
     { name = "tyler-ingram", email = "tyingram570@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "anthropic>=1.4.0",
+    "python-dotenv>=1.2.3",
+]
 
 [project.scripts]
 communications-helper-agent = "communications_helper_agent:main"
