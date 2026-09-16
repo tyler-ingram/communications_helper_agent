@@ -1,17 +1,25 @@
-"""Run the summarization prompt against the dataset and grade each output.
+"""Run the meeting-to-issues prompt against the dataset and grade each output.
 
     uv run python -m communications_helper_agent.eval.run_eval
     uv run python -m communications_helper_agent.eval.run_eval --reps 3
     uv run python -m communications_helper_agent.eval.run_eval --variant v1
 
-Writes, under backend/.claude/hillclimb/summarize/<variant>/:
-    results.jsonl              one row per (case, rep) that produced a summary
-    errors.jsonl               attempts that failed before producing one
+The pipeline runs through the app's own `llm.service.ask()` -- the same entry
+point production uses, so the eval exercises the real prompt, the real client,
+and the real model rather than a reconstruction of them.
+
+Grading is split. `graders.py` checks everything determinable in code (schema,
+field ranges, excerpt grounding, assignee safety); the judge handles only what
+needs fuzzy matching (did it find the real work, did it invent any).
+
+Writes, under backend/.claude/hillclimb/meeting_to_issues/<variant>/:
+    results.jsonl              one row per (case, rep) that produced output
+    errors.jsonl               attempts that failed before producing any
     traces/<id>_rep<k>.json    full exchange, for auditing a surprising score
 
 Attempts that never produced a scorable output go to errors.jsonl, never
-results.jsonl -- a plumbing failure scored as 0 would be indistinguishable from
-the model genuinely doing badly, and would block resume from retrying it.
+results.jsonl -- a plumbing failure scored as 0 is indistinguishable from the
+model genuinely doing badly, and would block resume from retrying it.
 """
 
 from __future__ import annotations
@@ -35,40 +43,35 @@ from .config import (
     DATASET_DIR,
     JUDGE_MODEL,
     METRICS,
+    PIPELINE_MODEL,
     RESULTS_ROOT,
-    SUMMARIZER_MODEL,
     load_prompt,
-    load_summarize_prompt,
+    load_pipeline_prompt,
 )
+from .graders import grade_deterministic
 
-# Independent 0-1 scores. Kept separate rather than blended: a drop in recall
-# (dropped tasks) and a drop in precision (invented tasks) have different fixes.
+# Only the fuzzy metrics -- the rest are graded by code in graders.py.
 JUDGE_SCHEMA = {
     "type": "object",
     "properties": {
-        "task_recall": {"type": "number", "minimum": 0, "maximum": 1},
-        "task_precision": {"type": "number", "minimum": 0, "maximum": 1},
+        "issue_recall": {"type": "number", "minimum": 0, "maximum": 1},
+        "issue_precision": {"type": "number", "minimum": 0, "maximum": 1},
         "faithfulness": {"type": "number", "minimum": 0, "maximum": 1},
-        "coverage": {"type": "number", "minimum": 0, "maximum": 1},
         "reasoning": {
             "type": "string",
             "description": (
-                "For each score below 1.0, name the specific task or claim "
+                "For each score below 1.0, name the specific item or issue "
                 "responsible."
             ),
         },
     },
-    "required": [
-        "task_recall",
-        "task_precision",
-        "faithfulness",
-        "coverage",
-        "reasoning",
-    ],
+    "required": ["issue_recall", "issue_precision", "faithfulness", "reasoning"],
     "additionalProperties": False,
 }
 
-CASE_TIMEOUT_S = 300.0  # hard per-case ceiling, independent of stream liveness
+JUDGE_METRICS = ("issue_recall", "issue_precision", "faithfulness")
+
+CASE_TIMEOUT_S = 300.0  # hard per-case ceiling; local models can hang too
 MAX_ATTEMPTS = 4
 
 
@@ -115,31 +118,24 @@ def _judge_sections() -> tuple[str, str]:
     return system, user
 
 
-async def summarize(
-    client: AsyncAnthropic, transcript: str, model: str
-) -> tuple[str, Any, int]:
-    """Run the prompt under test. Returns (summary, response, retries)."""
-    prompt = load_summarize_prompt().replace("{transcript}", transcript)
+async def run_pipeline(transcript: str, model: str | None) -> tuple[str, str]:
+    """Call the app's real entry point. Returns (raw_output, model_used).
 
-    async def call():
-        async with client.messages.stream(
-            model=model,
-            max_tokens=8000,
-            thinking={"type": "adaptive"},
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            return await stream.get_final_message()
+    `llm.service.ask` is synchronous and LM Studio is a local server, so it runs
+    in a thread to keep the async runner from blocking on it.
+    """
+    from ..llm import ask
+    from ..llm.client import DEFAULT_MODEL
 
-    response, retries = await _with_backoff(call, "summarize")
-    _assert_model(response, model)
-    text = "".join(b.text for b in response.content if b.type == "text")
-    return text, response, retries
+    system = load_pipeline_prompt()
+    raw = await asyncio.to_thread(ask, transcript, system=system, model_key=model)
+    return raw, (model or DEFAULT_MODEL)
 
 
 async def judge(
-    client: AsyncAnthropic, case: dict, summary: str, model: str
+    client: AsyncAnthropic, case: dict, issues_json: str, model: str
 ) -> tuple[dict, Any]:
-    """Grade one summary against its criteria."""
+    """Grade the fuzzy half: recall, precision, faithfulness."""
     crit = case["solution_criteria"]
     system, body = _judge_sections()
 
@@ -152,7 +148,7 @@ async def judge(
             "{must_not_contain}",
             json.dumps(crit.get("must_not_contain", []), indent=2),
         )
-        .replace("{summary}", summary)
+        .replace("{issues}", issues_json)
     )
 
     async def call():
@@ -180,49 +176,62 @@ async def run_case(
     client: AsyncAnthropic,
     case: dict,
     rep: int,
-    model: str,
+    model: str | None,
     out_dir: Path,
     sem: asyncio.Semaphore,
 ) -> tuple[dict | None, dict | None]:
     """Run and grade one (case, rep). Returns (result_row, error_row)."""
     case_id = case["id"]
+    transcript = case["data"]
+
     async with sem:
         started = time.monotonic()
         try:
-            summary, resp, retries = await asyncio.wait_for(
-                summarize(client, case["data"], model), timeout=CASE_TIMEOUT_S
+            raw, model_used = await asyncio.wait_for(
+                run_pipeline(transcript, model), timeout=CASE_TIMEOUT_S
             )
             latency = time.monotonic() - started
 
-            if resp.stop_reason == "refusal":
-                return None, {
-                    "prompt_id": case_id,
-                    "rep": rep,
-                    "failure_class": "refusal",
-                    "model": resp.model,
-                    "usage": resp.usage.model_dump(),
-                    "detail": str(getattr(resp, "stop_details", None)),
-                }
+            # Code-graded half. Runs even on unparseable output, so a
+            # correct-but-malformed answer loses schema points rather than
+            # vanishing.
+            det = grade_deterministic(raw, transcript)
 
-            # A response clipped at max_tokens is not a wrong answer; mark it so
-            # the report counts it separately rather than averaging it in.
-            truncated = resp.stop_reason == "max_tokens"
+            # The judge sees the parsed issues when available, else the raw
+            # text -- it still has to decide whether the right work was found.
+            issues_for_judge = (
+                json.dumps(det["issues"], indent=2)
+                if det["issues"] is not None
+                else raw
+            )
+            fuzzy, judge_resp = await judge(
+                client, case, issues_for_judge, JUDGE_MODEL
+            )
 
-            grade, judge_resp = await judge(client, case, summary, JUDGE_MODEL)
+            grade = {**det["scores"], **{m: fuzzy[m] for m in JUDGE_METRICS}}
 
             (out_dir / "traces").mkdir(parents=True, exist_ok=True)
             trace = [
-                {"role": "system", "content": load_summarize_prompt()},
-                {"role": "user", "content": case["data"]},
-                {"role": "assistant", "content": summary},
+                {"role": "system", "content": load_pipeline_prompt()},
+                {"role": "user", "content": transcript},
+                {"role": "assistant", "content": raw},
                 {
                     "role": "user",
                     "content": (
-                        "[JUDGE] criteria:\n"
+                        "[CODE GRADER]\n"
+                        + json.dumps(
+                            {
+                                "scores": det["scores"],
+                                "problems": det["problems"],
+                                "parse_error": det["parse_error"],
+                            },
+                            indent=2,
+                        )
+                        + "\n\n[JUDGE] criteria:\n"
                         + json.dumps(case["solution_criteria"], indent=2)
                     ),
                 },
-                {"role": "assistant", "content": json.dumps(grade, indent=2)},
+                {"role": "assistant", "content": json.dumps(fuzzy, indent=2)},
             ]
             (out_dir / "traces" / f"{case_id}_rep{rep}.json").write_text(
                 json.dumps(trace, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -231,22 +240,22 @@ async def run_case(
             row = {
                 "prompt_id": case_id,
                 "rep": rep,
-                "prompt": case["data"],
+                "prompt": transcript,
                 "tags": [case.get("difficulty", "unknown")],
-                "stop_reason": resp.stop_reason,
-                "status": "truncated" if truncated else "ok",
+                "status": "ok",
                 "grade": {m["id"]: grade[m["id"]] for m in METRICS},
-                "explanation": {m["id"]: grade["reasoning"] for m in METRICS},
-                "model": resp.model,
-                "usage": resp.usage.model_dump(),
+                "explanation": {m: fuzzy["reasoning"] for m in JUDGE_METRICS},
+                "model": model_used,
                 "judge_model": judge_resp.model,
                 "judge_usage": judge_resp.usage.model_dump(),
                 "latency_s": round(latency, 2),
-                "retries": retries,
+                "n_issues": len(det["issues"]) if det["issues"] is not None else 0,
                 "meta": {
                     "n_required_tasks": len(
                         case["solution_criteria"].get("required_tasks", [])
-                    )
+                    ),
+                    "parse_error": det["parse_error"],
+                    "grader_problems": det["problems"],
                 },
             }
             return row, None
@@ -295,7 +304,6 @@ def _summarize(results_path: Path) -> None:
         vals = [r["grade"][m["id"]] for r in ok if m["id"] in r.get("grade", {})]
         if vals:
             mean = sum(vals) / len(vals)
-            # Rough spread; treat differences smaller than this as noise.
             spread = (max(vals) - min(vals)) / 2 if len(vals) > 1 else 0.0
             print(f"  {m['label']:<10} {mean:.3f}  (spread +/-{spread:.3f})")
 
@@ -305,6 +313,10 @@ def _summarize(results_path: Path) -> None:
     print(f"\n{METRICS[0]['label']} by difficulty:")
     for tag, vals in sorted(by_tag.items()):
         print(f"  {tag:<8} {sum(vals) / len(vals):.3f}  (n={len(vals)})")
+
+    parse_fails = sum(1 for r in ok if r["meta"].get("parse_error"))
+    if parse_fails:
+        print(f"\n{parse_fails}/{len(ok)} output(s) did not parse as JSON.")
 
 
 async def main_async(args) -> None:
@@ -332,7 +344,7 @@ async def main_async(args) -> None:
                 "metrics": METRICS,
                 "perf_fields": [
                     {"id": "latency_s", "label": "Latency", "unit": "s"},
-                    {"id": "cost_usd", "label": "Cost", "unit": "$"},
+                    {"id": "n_issues", "label": "Issues"},
                 ],
             },
             indent=2,
@@ -341,6 +353,7 @@ async def main_async(args) -> None:
     )
 
     client = AsyncAnthropic()
+    # LM Studio serves one local model; too much concurrency just queues.
     sem = asyncio.Semaphore(args.concurrency)
     tasks = [run_case(client, c, r, args.model, out_dir, sem) for c, r in todo]
 
@@ -367,11 +380,20 @@ async def main_async(args) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Run the summarization eval.")
+    ap = argparse.ArgumentParser(description="Run the meeting-to-issues eval.")
     ap.add_argument("--variant", default="baseline", help="baseline, v1, v2, ...")
-    ap.add_argument("--model", default=SUMMARIZER_MODEL)
+    ap.add_argument(
+        "--model",
+        default=PIPELINE_MODEL,
+        help="LM Studio model key (default: $LM_MODEL, else the client default)",
+    )
     ap.add_argument("--reps", type=int, default=2, help="repetitions per case")
-    ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument(
+        "--concurrency",
+        type=int,
+        default=2,
+        help="in-flight cases; LM Studio serves one model, so keep this low",
+    )
     args = ap.parse_args()
     asyncio.run(main_async(args))
 

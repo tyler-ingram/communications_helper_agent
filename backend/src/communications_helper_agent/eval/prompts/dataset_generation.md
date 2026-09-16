@@ -12,12 +12,14 @@ produces short, samey transcripts.
 
 ## SYSTEM
 
-You are constructing an evaluation dataset for a meeting-summarization system.
+You are constructing an evaluation dataset for a meeting-triage system.
 
-The system under test receives a raw meeting transcript and must return a
-summary that preserves every actionable subtask discussed. Downstream, those
-subtasks become GitHub issues, so a dropped task is a task that never gets
-built. Your dataset is what proves whether the system does that reliably.
+The system under test receives a raw meeting transcript and must return a JSON
+array of proposed GitHub issues -- one per actionable item discussed. A human
+reviews every issue before it is filed, so the system is a first-pass filter
+that should surface ambiguous candidates rather than drop them. But a missed
+item is work that never gets tracked, and an invented item wastes a reviewer's
+time. Your dataset is what proves whether the system gets that balance right.
 
 Write cases that a careless implementation would fail and a correct one would
 pass. A dataset every implementation passes measures nothing.
@@ -67,17 +69,29 @@ Return a JSON array. Each element:
    list here becomes a case where a correct system is scored wrong.
 2. **`evidence` must be a real quote** from your own transcript, verbatim. This
    is what makes the dataset auditable: a human can check the label without
-   re-reading everything.
+   re-reading everything. The system under test must also quote the transcript
+   in each issue's `source_excerpt`, and the harness verifies those quotes
+   really appear -- so verbatim evidence here keeps both sides honest.
 3. **`owner` is `null` when genuinely unassigned.** Don't invent owners.
    "Someone should look at the flaky test" is a real task with no owner.
 4. **`must_not_contain` is the hallucination trap.** Put here things that were
-   *raised and explicitly rejected*, or *floated and left undecided*. Example:
-   someone proposes a Redis cache, someone else says "let's not, not this
-   sprint." A system that lists "add Redis cache" as a subtask has failed, and
-   this field is what catches it. At least one per non-edge case.
+   *raised and explicitly rejected*. Example: someone proposes a Redis cache,
+   someone else says "let's not, not this sprint." A system that files "add
+   Redis cache" as an issue has failed, and this field is what catches it. At
+   least one per non-edge case.
+
+   Be careful to distinguish *rejected* from *merely undecided*. The system is
+   instructed to surface ambiguous candidates, so an open question left hanging
+   is a legitimate issue (type `question`), not a hallucination. Only put
+   things here that were clearly turned down.
 5. **Distinguish decisions from tasks.** "We agreed to use Postgres" is a
    decision -- it belongs in `must_mention`. "Ana will write the migration" is a
    task. Don't file decisions as tasks.
+
+6. **Include unowned and implied work.** The system is told that implied items
+   count -- "the search is really slow right now" is a bug even with no owner
+   and no imperative. Include several such items, with `owner: null`. A dataset
+   of only explicit "I'll do X" commitments would never exercise that rule.
 
 ### Difficulty mix
 
@@ -91,8 +105,9 @@ Generate this exact distribution across the full set of 10:
   deploy has been broken since Tuesday and nobody's looked at it" is a task.
   Include at least one rejected proposal per case. Include speakers talking over
   each other so an item is split across interrupted lines.
-- **1 x `edge`** -- a real meeting with **zero** actionable subtasks. Pure
-  status readout or discussion that resolves nothing. `required_tasks` is `[]`.
+- **1 x `edge`** -- a real meeting with **zero** actionable items. Pure status
+  readout, or discussion where every proposal is explicitly turned down.
+  `required_tasks` is `[]`. The correct output is an empty JSON array.
   This is the most important single case in the set: it is the only one that
   catches a system that invents work to look useful. Systems that pattern-match
   "meeting -> task list" fail exactly here.
