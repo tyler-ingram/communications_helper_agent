@@ -1,0 +1,62 @@
+﻿Meeting Sep 8, 2026 at 08:58 PDT
+
+
+Sep 8, 2026
+
+
+Architecture review and workflow evaluation via structured discussion and recorded demonstrations.
+
+
+Technical Architecture and Environment
+* Riley explained that Electron uses a local server and browser window, requiring explicit declarations in preload.js and main.js for secure data access.
+* Riley clarified that using Electron Forge to package the application makes it self-contained, removing the need for end-users to install Node.
+* Riley resolved the repository gitignore conflict by merging the main branch.
+
+
+GitHub Integration Strategy
+* Tyler advocated for using the GitHub MCP to utilize built-in authentication and avoid manual OAuth implementation.
+* Muhammad questioned the necessity of MCP, noting that it is typically designed for agentic workflows rather than the team's specific, defined workflow.
+* Riley countered that using the GitHub MCP provides a modular framework to easily scale GitHub functionality in the future.
+
+
+Model Evaluation and Testing
+* Muhammad reported that the prompt evaluation work is nearing completion.
+* Tyler suggested using actual meeting transcripts to stress-test prompt performance in real-world, messy scenarios.
+* Tyler recommended prioritizing smaller, tooling-specific models to balance performance with hardware constraints.
+
+
+User Experience and Deployment
+* Tyler proposed producing a short demo video for recruiters to highlight features, mitigating the high barrier to entry caused by the need for local downloads.
+* The team acknowledged that users will still require a manual, separate download of LM Studio and the necessary models to run the application.
+
+
+Meeting Logistics
+* The team scheduled a mentorship meeting for tomorrow at 9:00 AM.
+* The team agreed to hold a follow-up check-in on Thursday to discuss progress and blockers.
+
+
+Next steps
+* [Muhammad Qureshi] Move evaluation: Transfer the finished evaluation work to the shared project repository.
+* [Tyler Ingram] Implement GitHub MCP: Research and configure the tool for API interactions and GitHub authentication. Determine if the MCP implementation is the best approach compared to manual tool calls.
+* [Shayaan] Test models: Evaluate various models for reliability with tool calls while prioritizing smaller parameter sizes. Consult with Muhammad regarding top performing prompts for these tests.
+* [Shayaan] Wire components: Implement the data flow for API calls from the user interface to the backend processing logic. Ensure the system handles document uploads and result returns as designed.
+* [Riley McKinlay] Create boot script: Create a script to automatically start all local services including the backend and model servers. Allow for a single command execution to simplify the environment setup.
+* [Riley McKinlay] Improve download UX: Simplify the software installation process to minimize external setup requirements for new users. Ensure the executable provides a smooth onboarding experience.
+* [Shayaan] Record demo: Produce a short demonstration video to showcase the application functionality to recruiters. Focus on highlighting key features to avoid requiring a full local download.
+* [Tyler Ingram, Riley McKinlay] Combine gitignore: Merge the separate gitignore configurations into a single master file to resolve repository conflicts.
+
+
+
+
+
+
+Want to see more? View the full notes
+Tip: You can always access your full notes from the left sidebar.
+
+
+
+
+
+
+You should review Gemini's notes to make sure they're accurate. Get tips and learn how Gemini takes notes
+How is the quality of these specific notes? Take a short survey to let us know your feedback, including how helpful the notes were for your needs.
