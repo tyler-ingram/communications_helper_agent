@@ -7,22 +7,22 @@ A missed item is work that never gets tracked; an invented one wastes a
 reviewer's time. Recall is the headline metric, with precision beside it so a
 system cannot win by proposing everything.
 
-**The eval runs the real pipeline.** It calls `llm.service.ask()` with the
-prompt read from `llm/system_prompts.py` — the same entry point and the same
-local model (LM Studio, `qwen/qwen3-4b-2507`) that production uses. Nothing is
-reconstructed here, so the prompt cannot drift out from under the eval. Only
-the judge calls the Claude API.
+**Everything runs on LM Studio** — the pipeline, the judge, and the dataset
+generator. No API key, no per-case cost, so a full pass can be re-run as often
+as you like.
+
+The extraction prompt is read live from `llm/system_prompts.py`, so it cannot
+drift out from under the eval.
 
 ## The three stages
 
 ```
 generate_dataset.py  ->  dataset/*.json     write the test cases (once, offline)
-check_judge.py       ->  pass/fail          prove the judge works before paying
+check_judge.py       ->  pass/fail          prove the judge grades correctly
 run_eval.py          ->  results.jsonl      run the pipeline, grade each output
 ```
 
-`generate_dataset.py` and `check_judge.py` call the Claude API and cost money.
-`run_eval.py` runs the pipeline locally and free; only its judge half is paid.
+All three run against LM Studio, which must be up with the model loaded.
 
 ## Case format
 
@@ -106,7 +106,7 @@ fabricated quote — and a fabricated quote fails a plain string search. That
 catches hallucination for free, without a model call.
 
 Anything checkable without judgment belongs in `graders.py`, not `judge.md`. A
-model call to verify `1 <= priority <= 5` is wasted money and adds noise to a
+model call to verify `1 <= priority <= 5` wastes time and adds noise to a
 deterministic answer.
 
 ## Running it
@@ -114,16 +114,16 @@ deterministic answer.
 ```bash
 cd backend
 
-# 1. generate the dataset (once) -- costs money, uses claude-opus-5
+# 1. generate the dataset (once)
 uv run python -m communications_helper_agent.eval.generate_dataset
 
 # 2. READ THE CASES. Confirm required_tasks are right.
 #    A mislabelled case silently scores a correct system wrong.
 
-# 3. prove the judge works before paying for a full run
+# 3. prove the judge grades correctly before trusting a full run
 uv run python -m communications_helper_agent.eval.check_judge
 
-# 4. run the eval -- needs LM Studio running with the model loaded
+# 4. run the eval
 uv run python -m communications_helper_agent.eval.run_eval --reps 2
 ```
 
@@ -152,20 +152,31 @@ node "$B" backend/.claude/hillclimb/meeting_to_issues/
 | `prompts/judge.md` | eval | grades the fuzzy half |
 
 The prompt under test deliberately lives in the app, not here. `config.py`
-imports it, so an edit to `system_prompts.py` is picked up by the next eval run
-with no sync step — the eval can never measure a stale copy.
+reads it off disk, so an edit to `system_prompts.py` is picked up by the next
+eval run with no sync step — the eval can never measure a stale copy.
+
+(It is loaded by file path rather than imported, because importing anything
+under `llm/` currently executes `llm/__init__` -> `service.py` ->
+`mcp/github.py`, which raises unless `GITHUB_PERSONAL_ACCESS_TOKEN` is set.
+Once that module defers its token check, this can go back to a plain import.)
 
 ## Models
 
-| role | model | cost |
-|------|-------|------|
-| pipeline (under test) | LM Studio, `$LM_MODEL` | free, local |
-| dataset generator | `claude-opus-5` | paid, once |
-| judge | `claude-sonnet-5` | paid, per case |
+| role | env var | default |
+|------|---------|---------|
+| pipeline (under test) | `$LM_MODEL` | `qwen/qwen3-4b-2507` |
+| judge | `$JUDGE_MODEL` | falls back to `$LM_MODEL` |
+| dataset generator | `$GENERATOR_MODEL` | falls back to `$JUDGE_MODEL` |
 
-The pipeline model matches production, so the numbers transfer. The judge is
-deliberately a different family from the system under test — a judge sharing a
-model with the thing it grades prefers outputs resembling its own.
+The pipeline model matches production, so the numbers transfer.
+
+**The judge defaults to the same model as the pipeline, and that is a real
+bias** — a judge grading output from its own weights prefers output resembling
+what it would have written, which inflates scores. If you have a second model
+loaded in LM Studio, point `$JUDGE_MODEL` at it. If you don't, the eval still
+works, but `check_judge.py` goes from prudent to load-bearing: it is the only
+thing keeping that bias measurable. `run_eval` prints a warning and records
+`meta.judge_is_pipeline_model` on every row when the two match.
 
 ## Things that will bite you
 
@@ -180,10 +191,9 @@ are *right*. Only reading them does that.
 0-1 metric. Treat differences smaller than that as noise, not improvement. If
 you need to detect a smaller change, raise `--reps` or add cases.
 
-**LM Studio must be running** with the model loaded before `run_eval`. If it
-is not, every case lands in `errors.jsonl` as `harness_error` rather than
-scoring 0 — which is the point of the sidecar, but check there first if a run
-comes back empty.
+**LM Studio must be running** with the model loaded. If it is not, every case
+lands in `errors.jsonl` as `harness_error` rather than scoring 0 — which is the
+point of the sidecar, but check there first if a run comes back empty.
 
 **A small local model may not hold the format.** `qwen3-4b` is being asked for
 a 10-field JSON array with a reasoning preamble. If `schema_valid` or
@@ -191,6 +201,14 @@ a 10-field JSON array with a reasoning preamble. If `schema_valid` or
 finding the right work but losing the format — a different problem than missing
 items, which is exactly why those are separate metrics.
 
-**Judge cost is real, the pipeline is free.** Every case still costs one judge
-call. `results.jsonl` records `judge_model` and `judge_usage` separately so
-that spend stays visible.
+**A small local judge may not grade reliably.** `check_judge.py` is how you
+find out. If the oracle check fails — a list built from the answer key scoring
+below 1.0 — the judge is too weak for the job, and every real score is
+depressed by the same broken standard. Try a larger `$JUDGE_MODEL` before
+touching the prompt.
+
+**Generated cases will be weaker than they were.** Dataset generation now runs
+on the same small local model, so expect shorter, less varied transcripts and
+more label errors. Writing a handful of cases by hand is a legitimate
+alternative — the schema is simple, and hand-written cases need no
+verification pass.

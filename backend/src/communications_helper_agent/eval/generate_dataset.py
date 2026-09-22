@@ -9,18 +9,26 @@ Cases are generated in small batches so each transcript gets real attention.
 Generated cases are a STARTING POINT, not ground truth. Read every one before
 trusting a score from it -- a mislabelled case scores a correct system wrong,
 and that error is invisible once it's buried in an aggregate.
+
+This warning carries more weight now that generation runs on a small local
+model. Expect shorter, less varied transcripts and more label errors than a
+frontier model would produce, and budget real time for reading them. Writing
+a few cases by hand is a legitimate alternative -- the schema is simple, and
+hand-written cases need no verification pass.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import re
 from pathlib import Path
 
-from anthropic import Anthropic
+import lmstudio as lms
 
 from .config import (
+    CONTEXT_LENGTH,
     DATASET_DIR,
     GENERATOR_MODEL,
     PROMPTS_DIR,
@@ -105,8 +113,10 @@ def _validate(case: dict, case_id: str) -> list[str]:
     return problems
 
 
-def generate(difficulty: str, n: int, existing_ids: list[str]) -> list[dict]:
-    client = Anthropic()
+async def generate_async(
+    difficulty: str, n: int, existing_ids: list[str]
+) -> list[dict]:
+    """Generate n cases of one difficulty tier via LM Studio."""
     system, user_tmpl = _split_prompt(load_prompt("dataset_generation.md"))
     user = (
         user_tmpl.replace("{n}", str(n))
@@ -114,24 +124,19 @@ def generate(difficulty: str, n: int, existing_ids: list[str]) -> list[dict]:
         .replace("{existing_ids}", ", ".join(existing_ids) or "(none)")
     )
 
-    # Streaming: transcripts are long, and a batch can run past the HTTP timeout.
-    with client.beta.messages.stream(
-        model=GENERATOR_MODEL,
-        max_tokens=32000,
-        system=system,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "high"},
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        messages=[{"role": "user", "content": user}],
-    ) as stream:
-        response = stream.get_final_message()
+    async with lms.AsyncClient() as client:
+        model = await client.llm.model(
+            GENERATOR_MODEL, config={"contextLength": CONTEXT_LENGTH}
+        )
+        chat = lms.Chat(system)
+        chat.add_user_message(user)
+        result = await model.respond(chat)
 
-    if response.stop_reason == "refusal":
-        raise RuntimeError(f"generation refused: {response.stop_details}")
+    return _extract_json_array(result.content)
 
-    text = "".join(b.text for b in response.content if b.type == "text")
-    return _extract_json_array(text)
+
+def generate(difficulty: str, n: int, existing_ids: list[str]) -> list[dict]:
+    return asyncio.run(generate_async(difficulty, n, existing_ids))
 
 
 def main() -> None:

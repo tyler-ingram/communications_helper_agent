@@ -4,9 +4,9 @@
     uv run python -m communications_helper_agent.eval.run_eval --reps 3
     uv run python -m communications_helper_agent.eval.run_eval --variant v1
 
-The pipeline runs through the app's own `llm.service.ask()` -- the same entry
-point production uses, so the eval exercises the real prompt, the real client,
-and the real model rather than a reconstruction of them.
+Everything runs on LM Studio, so a full pass costs nothing and can be re-run
+freely. LM Studio must be up with the model loaded, or every case lands in
+errors.jsonl as a harness error.
 
 Grading is split. `graders.py` checks everything determinable in code (schema,
 field ranges, excerpt grounding, assignee safety); the judge handles only what
@@ -30,17 +30,13 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Any
 
-from anthropic import (
-    APIConnectionError,
-    APIStatusError,
-    AsyncAnthropic,
-    RateLimitError,
-)
+import lmstudio as lms
 
 from .config import (
+    CONTEXT_LENGTH,
     DATASET_DIR,
+    FALLBACK_MODEL,
     JUDGE_MODEL,
     METRICS,
     PIPELINE_MODEL,
@@ -49,6 +45,7 @@ from .config import (
     load_pipeline_prompt,
 )
 from .graders import grade_deterministic
+from .judge_client import judge_call
 
 # Only the fuzzy metrics -- the rest are graded by code in graders.py.
 JUDGE_SCHEMA = {
@@ -71,8 +68,10 @@ JUDGE_SCHEMA = {
 
 JUDGE_METRICS = ("issue_recall", "issue_precision", "faithfulness")
 
-CASE_TIMEOUT_S = 300.0  # hard per-case ceiling; local models can hang too
-MAX_ATTEMPTS = 4
+# A local model on a long transcript is slow; this ceiling is generous but
+# still reclaims the slot if generation hangs.
+CASE_TIMEOUT_S = 600.0
+MAX_ATTEMPTS = 3
 
 
 def load_cases() -> list[dict]:
@@ -85,28 +84,21 @@ def load_cases() -> list[dict]:
     return cases
 
 
-def _assert_model(response: Any, requested: str) -> None:
-    """A silently substituted model invalidates the comparison."""
-    served = getattr(response, "model", None)
-    if served and not served.startswith(requested.split("[")[0]):
-        raise RuntimeError(f"served model {served!r} != requested {requested!r}")
+async def _with_backoff(coro_factory, what: str):
+    """Retry transient failures with jittered backoff. Returns (result, retries).
 
-
-async def _with_backoff(coro_factory, what: str) -> tuple[Any, int]:
-    """Retry transient failures with jittered backoff. Returns (result, retries)."""
+    LM Studio is local, so the failures worth retrying are a busy server or a
+    model still loading -- not rate limits.
+    """
     for attempt in range(MAX_ATTEMPTS):
         try:
             return await coro_factory(), attempt
-        except (RateLimitError, APIConnectionError) as exc:
+        except lms.LMStudioError as exc:
             if attempt == MAX_ATTEMPTS - 1:
                 raise
             delay = (2**attempt) + random.uniform(0, 1)
             print(f"    {what}: {type(exc).__name__}, retrying in {delay:.1f}s")
             await asyncio.sleep(delay)
-        except APIStatusError as exc:
-            if exc.status_code < 500 or attempt == MAX_ATTEMPTS - 1:
-                raise
-            await asyncio.sleep((2**attempt) + random.uniform(0, 1))
     raise RuntimeError("unreachable")
 
 
@@ -118,23 +110,29 @@ def _judge_sections() -> tuple[str, str]:
     return system, user
 
 
-async def run_pipeline(transcript: str, model: str | None) -> tuple[str, str]:
-    """Call the app's real entry point. Returns (raw_output, model_used).
+async def run_pipeline(transcript: str, model_key: str | None) -> tuple[str, str]:
+    """Run the extraction prompt. Returns (raw_output, model_used).
 
-    `llm.service.ask` is synchronous and LM Studio is a local server, so it runs
-    in a thread to keep the async runner from blocking on it.
+    This mirrors what llm.service.ask() does, but against the async client.
+    It does not call ask() directly because ask() is currently broken on main:
+    get_model() became an async context manager, and ask() still treats its
+    return value as a model handle. Once ask() is fixed to match, this should
+    call it instead -- going through the app's own entry point is what keeps
+    the eval honest.
     """
-    from ..llm import ask
-    from ..llm.client import DEFAULT_MODEL
-
+    key = model_key or FALLBACK_MODEL
     system = load_pipeline_prompt()
-    raw = await asyncio.to_thread(ask, transcript, system=system, model_key=model)
-    return raw, (model or DEFAULT_MODEL)
+
+    async with lms.AsyncClient() as client:
+        model = await client.llm.model(key, config={"contextLength": CONTEXT_LENGTH})
+        chat = lms.Chat(system)
+        chat.add_user_message(transcript)
+        result = await model.respond(chat)
+
+    return result.content, key
 
 
-async def judge(
-    client: AsyncAnthropic, case: dict, issues_json: str, model: str
-) -> tuple[dict, Any]:
+async def judge(case: dict, issues_json: str, model_key: str) -> tuple[dict, str]:
     """Grade the fuzzy half: recall, precision, faithfulness."""
     crit = case["solution_criteria"]
     system, body = _judge_sections()
@@ -151,32 +149,17 @@ async def judge(
         .replace("{issues}", issues_json)
     )
 
-    async def call():
-        return await client.messages.create(
-            model=model,
-            max_tokens=4000,
-            system=system,
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "name": "grade",
-                    "schema": JUDGE_SCHEMA,
-                }
-            },
-            messages=[{"role": "user", "content": user}],
-        )
-
-    response, _ = await _with_backoff(call, "judge")
-    _assert_model(response, model)
-    text = "".join(b.text for b in response.content if b.type == "text")
-    return json.loads(text), response
+    (grade, used), _ = await _with_backoff(
+        lambda: judge_call(model_key, system, user, JUDGE_SCHEMA, CONTEXT_LENGTH),
+        "judge",
+    )
+    return grade, used
 
 
 async def run_case(
-    client: AsyncAnthropic,
     case: dict,
     rep: int,
-    model: str | None,
+    model_key: str | None,
     out_dir: Path,
     sem: asyncio.Semaphore,
 ) -> tuple[dict | None, dict | None]:
@@ -187,8 +170,11 @@ async def run_case(
     async with sem:
         started = time.monotonic()
         try:
-            raw, model_used = await asyncio.wait_for(
-                run_pipeline(transcript, model), timeout=CASE_TIMEOUT_S
+            (raw, model_used), retries = await asyncio.wait_for(
+                _with_backoff(
+                    lambda: run_pipeline(transcript, model_key), "pipeline"
+                ),
+                timeout=CASE_TIMEOUT_S,
             )
             latency = time.monotonic() - started
 
@@ -204,9 +190,7 @@ async def run_case(
                 if det["issues"] is not None
                 else raw
             )
-            fuzzy, judge_resp = await judge(
-                client, case, issues_for_judge, JUDGE_MODEL
-            )
+            fuzzy, judge_used = await judge(case, issues_for_judge, JUDGE_MODEL)
 
             grade = {**det["scores"], **{m: fuzzy[m] for m in JUDGE_METRICS}}
 
@@ -246,9 +230,9 @@ async def run_case(
                 "grade": {m["id"]: grade[m["id"]] for m in METRICS},
                 "explanation": {m: fuzzy["reasoning"] for m in JUDGE_METRICS},
                 "model": model_used,
-                "judge_model": judge_resp.model,
-                "judge_usage": judge_resp.usage.model_dump(),
+                "judge_model": judge_used,
                 "latency_s": round(latency, 2),
+                "retries": retries,
                 "n_issues": len(det["issues"]) if det["issues"] is not None else 0,
                 "meta": {
                     "n_required_tasks": len(
@@ -256,6 +240,9 @@ async def run_case(
                     ),
                     "parse_error": det["parse_error"],
                     "grader_problems": det["problems"],
+                    # Flag self-grading: the judge and the system under test
+                    # sharing weights biases scores upward.
+                    "judge_is_pipeline_model": judge_used == model_used,
                 },
             }
             return row, None
@@ -318,6 +305,13 @@ def _summarize(results_path: Path) -> None:
     if parse_fails:
         print(f"\n{parse_fails}/{len(ok)} output(s) did not parse as JSON.")
 
+    if any(r["meta"].get("judge_is_pipeline_model") for r in ok):
+        print(
+            "\nNote: the judge ran on the same model as the pipeline, which "
+            "biases scores upward.\nSet $JUDGE_MODEL to a different local "
+            "model if you have one loaded."
+        )
+
 
 async def main_async(args) -> None:
     cases = load_cases()
@@ -352,10 +346,14 @@ async def main_async(args) -> None:
         encoding="utf-8",
     )
 
-    client = AsyncAnthropic()
-    # LM Studio serves one local model; too much concurrency just queues.
+    print(
+        f"pipeline={args.model or '(client default)'}  judge={JUDGE_MODEL}\n"
+        f"{len(todo)} run(s) at concurrency {args.concurrency}\n"
+    )
+
+    # LM Studio serves one model at a time; too much concurrency just queues.
     sem = asyncio.Semaphore(args.concurrency)
-    tasks = [run_case(client, c, r, args.model, out_dir, sem) for c, r in todo]
+    tasks = [run_case(c, r, args.model, out_dir, sem) for c, r in todo]
 
     n_ok = n_err = 0
     for coro in asyncio.as_completed(tasks):
@@ -372,9 +370,14 @@ async def main_async(args) -> None:
             with errors_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(err, ensure_ascii=False) + "\n")
             n_err += 1
-            print(f"  [{err['prompt_id']} rep{err['rep']}] {err['failure_class']}")
+            print(
+                f"  [{err['prompt_id']} rep{err['rep']}] "
+                f"{err['failure_class']}: {err['detail'][:80]}"
+            )
 
     print(f"\n{n_ok} scored, {n_err} failed -> {out_dir}")
+    if n_err and not n_ok:
+        print("Every case failed. Is LM Studio running with the model loaded?")
     if n_ok:
         _summarize(results_path)
 
@@ -391,7 +394,7 @@ def main() -> None:
     ap.add_argument(
         "--concurrency",
         type=int,
-        default=2,
+        default=1,
         help="in-flight cases; LM Studio serves one model, so keep this low",
     )
     args = ap.parse_args()

@@ -1,5 +1,4 @@
-"""Sanity-check the judge before spending money on a full run.
-
+"""Sanity-check the judge before trusting a full run.
 
     uv run python -m communications_helper_agent.eval.check_judge
 
@@ -33,14 +32,17 @@ not a matter of opinion.
 A judge that passes the oracle and fails every negative is trustworthy enough
 to grade the real run. One that doesn't needs another iteration before its
 scores can steer any decision.
+
+This matters more now that the judge runs on a local model -- often the same
+weights as the system under test, which biases it toward output resembling its
+own. These checks are what keep that bias measurable instead of invisible.
+Re-run after any change to judge.md, the judge model, or the pipeline model.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-
-from anthropic import AsyncAnthropic
 
 from .config import JUDGE_MODEL
 from .run_eval import judge, load_cases
@@ -143,11 +145,10 @@ async def main_async() -> None:
     case = with_tasks[0]
     print(f"Checking judge ({JUDGE_MODEL}) against case {case['id']!r}\n")
 
-    client = AsyncAnthropic()
     failures = []
 
     for label, build, metric, expectation, ok in CHECKS:
-        grade, _ = await judge(client, case, build(case), JUDGE_MODEL)
+        grade, _ = await judge(case, build(case), JUDGE_MODEL)
         score = grade[metric]
         passed = ok(score)
         print(
@@ -161,7 +162,7 @@ async def main_async() -> None:
     # rewards an honest empty list rather than punishing it.
     edge = [c for c in cases if not c["solution_criteria"].get("required_tasks")]
     if edge:
-        grade, _ = await judge(client, edge[0], "[]", JUDGE_MODEL)
+        grade, _ = await judge(edge[0], "[]", JUDGE_MODEL)
         prec = grade["issue_precision"]
         passed = prec >= 0.9
         print(

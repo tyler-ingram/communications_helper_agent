@@ -7,11 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Takes a meeting transcript (Zoom, Meet, etc.) and turns it into structured, actionable work:
 
 1. **Extract** — `MEETING_TO_ISSUES_PROMPT` in `llm/system_prompts.py` takes a transcript and emits a JSON array of proposed GitHub issues (title, description, type, tags, priority, assignee, `source_excerpt`, status). One model call; there is no separate summarization step.
-2. **File issues** — a human reviews each proposal, then it becomes a real GitHub issue.
+2. **File issues** — `CREATE_ISSUES_PROMPT` + `llm.service.ask_with_tools()` drive a tool-calling loop against GitHub's hosted MCP server (`mcp/github.py`, `api.githubcopilot.com/mcp/`), with `get_me` / `search_repositories` / `search_issues` / `create_github_issue`. Only issues marked approved get filed.
 
-Step 2 is deliberately **not** an LLM call and **not** MCP: step 1 already emits structured issues, so filing them is a deterministic loop over the GitHub REST API (PyGithub or `httpx`). Routing it through a model adds latency, cost, and a chance of inventing work. MCP solves tool *discovery* for interactive agents; this pipeline knows its one operation at build time. (MCP would earn its place only if Claude Code itself were to manage the repo interactively — a separate feature.)
-
-**Models run locally through LM Studio**, not the Claude API — `llm/client.py`, `$LM_MODEL`, default `qwen/qwen3-4b-2507`. The only Claude API calls in the repo are in the eval harness (dataset generation and the judge). Don't add `anthropic` calls to the pipeline.
+**Everything runs locally through LM Studio** — `llm/client.py`, `$LM_MODEL`, default `qwen/qwen3-4b-2507`. There are no Claude API calls anywhere in the repo, including the eval harness, and no `anthropic` dependency. Don't reintroduce one without asking.
 
 There is also an Electron frontend in `frontend/` (a form that submits a text block or file). No test runner or linter yet — those choices are open, so surface them rather than silently picking one.
 
@@ -48,22 +46,24 @@ No test or lint commands exist yet. When adding them, prefer `uv add --dev pytes
 
 `src/communications_helper_agent/eval/` measures the extraction prompt. Its README is the reference; the load-bearing decisions:
 
-- **The eval runs the real pipeline.** `run_pipeline()` calls `llm.service.ask()` with the prompt imported live from `llm/system_prompts.py`. Never copy the prompt into the eval — importing it is what stops the eval measuring a stale version.
-- **Grading is split.** `graders.py` handles everything checkable in code (schema, field ranges, `source_excerpt` grounding, assignee safety); `judge.md` handles only fuzzy matching (recall, precision, faithfulness). Don't move a deterministic check into the judge — it costs money and adds noise to an exact answer.
+- **The eval runs the real prompt.** `load_pipeline_prompt()` reads `MEETING_TO_ISSUES_PROMPT` off disk, so the eval can never measure a stale copy. It loads by file path rather than importing, because importing anything under `llm/` executes `llm/__init__` → `service.py` → `mcp/github.py`, which raises at import time unless `GITHUB_PERSONAL_ACCESS_TOKEN` is set — and the eval never touches GitHub. Two follow-ups worth doing in the app: defer that token check, and fix `llm.service.ask()`, which is broken since `get_model()` became an async context manager. Once `ask()` works, `run_pipeline()` should call it instead of duplicating its body.
+- **Grading is split.** `graders.py` handles everything checkable in code (schema, field ranges, `source_excerpt` grounding, assignee safety); `judge.md` handles only fuzzy matching (recall, precision, faithfulness). Don't move a deterministic check into the judge — it adds latency and noise to an exact answer.
 - **`excerpt_grounded` is the anti-fabrication check.** The prompt requires every issue to quote the transcript, so an invented issue usually carries an invented quote, which fails a string search. Free hallucination detection.
 - **Cases are `{data, solution_criteria}`.** `solution_criteria` holds checkable claims (`required_tasks` with verbatim `evidence` quotes, `must_mention`, `must_not_contain`), not one golden output — two correct issue lists can be worded completely differently.
 - **Seven independent metrics**, not one blended score. Recall and precision regressions have different fixes, so a single number would hide which one moved.
-- **The judge is `claude-sonnet-5`**, a different family from the local pipeline model — a judge sharing a model with the system under test prefers outputs resembling its own.
-- **`check_judge.py` must pass before any full run.** It builds issue lists whose correct score is known by construction (an oracle assembled from the answer key, an empty array, a wrong-meeting list, a rejected proposal, a prompt injection) and checks the judge agrees. Scores from an unverified judge measure the judge's blind spots.
+- **The judge runs on LM Studio too** (`$JUDGE_MODEL`, falling back to `$LM_MODEL`). When it shares a model with the pipeline it prefers output resembling its own, inflating scores; `run_eval` warns and records `meta.judge_is_pipeline_model`. Point `$JUDGE_MODEL` at a second local model when one is available.
+- **`check_judge.py` must pass before any full run.** It builds issue lists whose correct score is known by construction (an oracle assembled from the answer key, an empty array, a wrong-meeting list, a rejected proposal, a prompt injection) and checks the judge agrees. This matters more with a small local judge that may simply be too weak to grade: if the oracle scores below 1.0, raise `$JUDGE_MODEL` rather than touching the prompt.
 - **Generated cases are not ground truth.** The generator writes both transcript and labels; `_validate` checks structure only. Read the cases.
 - Failed attempts go to `errors.jsonl` with a failure class, never `results.jsonl` — a plumbing error scored as 0 is indistinguishable from a genuine model failure and would block resume. If LM Studio is down, every case lands there.
 
 ## Environment
 
-`backend/.env` (gitignored, copied from `.env.example`) holds `LM_MODEL` for the pipeline. `llm/client.py` calls `load_dotenv()`, so that one is picked up automatically.
+`backend/.env` (gitignored, copied from `.env.example`) holds `LM_MODEL` and `GITHUB_PERSONAL_ACCESS_TOKEN`. Both `llm/client.py` and `eval/config.py` call `load_dotenv()`.
 
-The eval harness also needs `ANTHROPIC_API_KEY` for the generator and judge. Nothing loads it for them yet — export it, or add a `load_dotenv()` call in the eval entry points.
+Optional eval overrides: `$JUDGE_MODEL` and `$GENERATOR_MODEL`. No API keys are needed — everything is local.
 
-## Claude API usage
+## LLM usage
 
-This project calls the Claude API, so load the `claude-api` skill before writing or reviewing any code that touches models, the `anthropic` SDK, pricing, or token limits — do not answer those from memory.
+All model calls go through LM Studio (`lmstudio` SDK), not the Claude API. Structured output uses `response_format={"type": "json", "json_schema": ...}` on `AsyncLLM.respond()`; there is no `output_config`/`max_tokens`/`thinking` here — those are Anthropic-only parameters.
+
+`mcp/github.py` talks to GitHub's hosted MCP server via `streamable_http_client`, driven by LM Studio's `model.act()` tool loop.
