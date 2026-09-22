@@ -7,42 +7,83 @@
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     </head>
     <body>
-        <h1>Communications Helper Agent</h1>
-        <p>
-            We are currently working on the Communications Helper Agent. Please check back later for updates. <br>
-            Running Node.js <span id="node-version"></span> <br>
-            Chromium <span id="chrome-version"></span> <br>
-            and Electron <span id="electron-version"></span>.
-        </p>
-        <div class="container">
-            <div class="row">
-                <div class="col d-flex flex-column align-items-center my-3">
-                    <button id="github-signin" class="btn btn-dark">Sign in with GitHub</button>
-                    <p id="auth-status" class="mt-2">Not signed in</p>
-                </div>
+        <nav class="navbar bg-body-tertiary">
+            <div class="container-fluid">
+                <ul class="nav nav-underline">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="current-tab">Transcript Submission</a>
+                    </li>
+                </ul>
+                <span class="navbar-brand mb-0 h1">Communications Helper Agent</span>
+                <button id="github-signin" class="btn btn-dark">Sign in with GitHub</button>
             </div>
-            <div class="row">
-                <div class="col d-flex flex-column align-items-center">
-                    <form id="text-transcript">
-                        <label for="transcript" class="form-label">Meeting Transcript: </label>
-                        <textarea id="transcript" name="transcript" rows="10" cols="50" class="form-control"></textarea>
-                        <input type="submit" value="Submit" class="btn btn-primary mt-2">
-                    </form>
-                </div>
-                <div class="col d-flex flex-column align-items-center">
+        </nav>
+        <div class="container mt-2 border" id="transcript-submission">
+            <div class="col">
+                <div class="row d-flex flex-column align-items-center">
                     <form id="file-transcript">
                         <label for="file" class="form-label">Upload Meeting Transcript File: </label>
                         <input type="file" id="file" name="file" class="form-control mt-2">
                         <input type="submit" value="Upload" class="btn btn-primary mt-2">
                     </form>
                 </div>
+                <div class="row justify-content-center bg-light my-3 mx-2 p-2 border">
+                    - OR -
+                </div>
+                <div class="row d-flex flex-column align-items-center">
+                    <form id="text-transcript">
+                        <label for="transcript" class="form-label">Meeting Transcript: </label>
+                        <textarea id="transcript" name="transcript" rows="10" cols="50" class="form-control"></textarea>
+                        <input type="submit" value="Submit" class="btn btn-primary mt-2">
+                    </form>
+                </div>
             </div>
-            <div class="row">
+            <div class="col">
                 <div class="col d-flex flex-column align-items-center my-3">
                     <pre id="result-area"></pre>
                 </div>
             </div>
             <script src="renderer.js"></script>
+        </div>
+        <div class="container d-none mt-2 border" id="issue-review">
+            <form>
+                <div class="row align-items-center justify-content-center mt-3">
+                    <div class="col-auto">
+                        <input type="text" id="repo-owner" placeholder="Repository Owner" class="form-control" size="30">
+                    </div>
+                    <div class="col-auto">
+                        /
+                    </div>
+                    <div class="col-auto">
+                        <input type="text" id="repo-name" placeholder="Repository Name" class="form-control" size="120">
+                    </div>
+                </div>
+            </form>
+            <div class="row align-items-center justify-content-center mt-3">
+                <div class="col d-flex flex-column">
+                    <input type="text" id="issue-title" class="form-control" placeholder="Issue Title">
+                    <textarea id="issue-description" class="form-control mt-2" placeholder="Issue Description"></textarea>
+                    <input type="text" id="issue-labels" class="form-control mt-2" placeholder="Issue Labels (comma-separated)">
+                    <input type="text" id="issue-tags" class="form-control mt-2" placeholder="Issue Tags (comma-separated)">
+                    <input type="text" id="issue-priority" class="form-control mt-2" placeholder="Issue Priority">
+                    <input type="text" id="issue-assignee" class="form-control mt-2" placeholder="Issue Assignee">
+                    <div>LLM Assignee Confidence: <span id="issue-assignee-confidence">...</span></div>
+                    <div>Suggested Repository: <span id="issue-suggested-repo">...</span></div>
+                    <div>Source Excerpt: <span id="issue-source-excerpt">...</span></div>
+                    <div>Status: <span id="issue-status">...</span></div>
+                </div>
+            </div>
+            <div class="row justify-content-around mt-3 mb-3">
+                <div class="col-auto">
+                    <button id="decline-issue" class="btn btn-danger">Decline</button>
+                </div>
+                <div class="col-auto">
+                    <button id="accept-issue" class="btn btn-success">Accept</button>
+                </div>
+            </div>
+        </div>
+        <div class="container d-none mt-2" id="transcript-summary">
+
         </div>
     </body>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>

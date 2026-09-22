@@ -121,6 +121,7 @@ function createWindow() {
     });
 
     mainWindow.loadFile('index.html');
+    mainWindow.maximize();
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -214,4 +215,11 @@ ipcMain.handle('submit-file-transcript', async (event, formData) => {
         throw new Error('Please sign in with GitHub first.');
     }
     return apiRequest('POST', '/transcript/file', { body: { file: formData.file }, token: githubToken });
+})
+
+ipcMain.handle('submit-accepted-issues', async (event, issues) => {
+    if (!githubToken) {
+        throw new Error('Please sign in with GitHub first.');
+    }
+    return apiRequest('POST', '/issues/accepted', { body: { issues }, token: githubToken });
 })

@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld('api', {
     submitFileTranscript: (formData) => ipcRenderer.invoke('submit-file-transcript', formData),
     signInWithGithub: () => ipcRenderer.invoke('github-sign-in'),
     getAuthStatus: () => ipcRenderer.invoke('get-auth-status'),
+    submitAcceptedIssues: (issues) => ipcRenderer.invoke('submit-accepted-issues', issues),
     versions: process.versions,
 })
