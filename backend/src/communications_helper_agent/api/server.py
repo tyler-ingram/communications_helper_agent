@@ -134,3 +134,17 @@ def _extract_text(result) -> str:
     if isinstance(result, list):
         return "\n".join(getattr(item, "text", "") for item in result)
     return str(result)
+
+@app.post("/issues/accepted")
+async def issues_accepted(request: Request):
+    token = _get_bearer_token(request)
+    body = await request.json()
+    issues = body.get("issues", [])
+    if not issues:
+        raise HTTPException(status_code=400, detail="Missing accepted issues")
+
+    # Here you would implement the logic to handle the accepted issues,
+    # such as creating them in GitHub using the provided token.
+    # For now, we'll just return a success message.
+
+    return {"status": "success", "accepted_issues": issues}
