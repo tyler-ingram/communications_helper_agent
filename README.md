@@ -32,13 +32,10 @@ Clone the repo and install dependencies:
 
 ```bash
 git clone https://github.com/tyler-ingram/communications_helper_agent.git
-cd communications_helper_agent
-cd backend
-uv sync
-lms get qwen/qwen3-4b-2507
-cd ../frontend
-npm install
+cd communications_helper_agent/frontend
+npm run setup
 ```
+By default, the setup script will retrieve and download qwen/qwen3-4b-2507 for the LLM. This model is approximately 2.5 GB large.
 
 To get another model:
 ```bash
@@ -53,22 +50,14 @@ Copy the example env file:
 ```bash
 cp .env.example .env
 ```
+If a different model is chosen during setup, ensure that the .env file states which model you want to use in the LM_MODEL field.
 
 No other configuration is required to run the service locally.
 
 ## Running the code
-To run the backend lms server to enable model calls use:
+To start the application use the following script
 ```bash
- lms daemon up
- lms server start
-```
-To run a python file:
-```bash 
-uv run <file_name>
-```
-To start the frontend application:
-```bash
-#In communcications_helper_agent/frontend
-npm start
+# In communications_helper_agent/frontend
+npm run start
 ```
 ---
