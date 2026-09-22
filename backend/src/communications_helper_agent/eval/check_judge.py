@@ -1,7 +1,6 @@
 """Sanity-check the judge before trusting a full run.
 
     uv run python -m communications_helper_agent.eval.check_judge
-
 The idea: build issue lists whose correct score is known BY CONSTRUCTION, then
 check whether the judge agrees. If we assemble a list directly from a case's
 own `required_tasks`, recall is arithmetically 1.0 -- it contains every
