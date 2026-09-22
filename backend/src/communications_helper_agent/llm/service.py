@@ -17,10 +17,10 @@ def ask(prompt: str, *, system: str | None = None, model_key: str | None = None)
 
     return result.content
 
-async def ask_with_tools(prompt: str, *, system: str | None = None, model_key: str | None = None) -> str:
+async def ask_with_tools(prompt: str, *, system: str | None = None, model_key: str | None = None, github_token: str | None = None) -> str:
     """Ask with github mcp tools for getting the user name, searching repos, searching issues and creating issues."""
     async with get_model(model_key) as model:
-        async with connect_to_github_mcp() as session:
+        async with connect_to_github_mcp(github_token) as session:
 
             tools = [
                 get_me_tool(session),

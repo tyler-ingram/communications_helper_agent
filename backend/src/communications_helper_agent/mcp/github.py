@@ -4,21 +4,26 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 import asyncio
-import httpx2
+import httpx
 from contextlib import asynccontextmanager
 import lmstudio as lms
 import json
 load_dotenv()
 
-github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
-if not github_token:
-    raise ValueError("GITHUB_PERSONAL_ACCESS_TOKEN is not set")
-
 @asynccontextmanager
-async def connect_to_github_mcp():
+async def connect_to_github_mcp(token: str | None = None):
+    """Open an MCP session against GitHub's hosted MCP server.
+
+    `token` should be an OAuth access token from the sign-in flow. Falls back
+    to GITHUB_PERSONAL_ACCESS_TOKEN for standalone/CLI use (e.g. example_mcp.py).
+    """
+    token = token or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    if not token:
+        raise ValueError("No GitHub token provided and GITHUB_PERSONAL_ACCESS_TOKEN is not set")
+
     url = "https://api.githubcopilot.com/mcp/"
-    headers = {"Authorization": f"Bearer {github_token}"}
-    async with httpx2.AsyncClient(headers=headers) as http_client:
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(headers=headers) as http_client:
         async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -44,8 +49,6 @@ def get_me_tool(session):
             "get_me",
             {}
         )
-        print(result)
-        print(result.content)
         return extract_json(result)
     get_me.__name__ = "get_me"
     get_me.__doc__ = """
