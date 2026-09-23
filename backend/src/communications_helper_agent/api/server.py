@@ -126,10 +126,9 @@ async def transcript_text(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="Missing transcript text")
 
-    issues_task = ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    summary_task = ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-    
-    issues_result, summary_result = await asyncio.gather(issues_task, summary_task)
+    # Run one after the other so LM Studio doesn't crash from concurrent requests
+    issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+    summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
     
     return {
         "result": _extract_text(issues_result), 
@@ -167,10 +166,9 @@ async def transcript_file(request: Request):
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable text found in file")
 
-    issues_task = ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    summary_task = ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-    
-    issues_result, summary_result = await asyncio.gather(issues_task, summary_task)
+    # Run one after the other so LM Studio doesn't crash from concurrent requests
+    issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+    summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
     
     return {
         "result": _extract_text(issues_result), 
