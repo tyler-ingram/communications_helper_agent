@@ -138,13 +138,21 @@ async def transcript_text(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="Missing transcript text")
 
-    # Run one after the other so LM Studio doesn't crash from concurrent requests
-    issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-    
+    try:
+        issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+        issues_text = _extract_text(issues_result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
+
+    try:
+        summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
+        summary_text = _extract_text(summary_result)
+    except Exception as e:
+        summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
+
     return {
-        "result": _extract_text(issues_result), 
-        "summary": _extract_text(summary_result)
+        "result": issues_text,
+        "summary": summary_text
     }
 
 
@@ -178,13 +186,21 @@ async def transcript_file(request: Request):
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable text found in file")
 
-    # Run one after the other so LM Studio doesn't crash from concurrent requests
-    issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-    
+    try:
+        issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+        issues_text = _extract_text(issues_result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
+
+    try:
+        summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
+        summary_text = _extract_text(summary_result)
+    except Exception as e:
+        summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
+
     return {
-        "result": _extract_text(issues_result), 
-        "summary": _extract_text(summary_result)
+        "result": issues_text,
+        "summary": summary_text
     }
 
 
