@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron/main');
+const { app, BrowserWindow, Menu, ipcMain, shell, safeStorage } = require('electron/main');
 const fs = require('fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -109,6 +109,49 @@ function registerProtocolHandler() {
     }
 }
 
+function buildAppMenu() {
+    const template = [
+        {
+            label: 'File',
+            submenu: [
+                { role: 'quit' }
+            ]
+        },
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                { role: 'selectAll' }
+            ]
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'forceReload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                { role: 'resetZoom' },
+                { role: 'zoomIn' },
+                { role: 'zoomOut' },
+                { type: 'separator' },
+                { role: 'togglefullscreen' }
+            ]
+        },
+        {
+            label: 'Window',
+            role: 'windowMenu'
+        }
+    ];
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 800,
@@ -145,6 +188,7 @@ if (!gotSingleInstanceLock) {
 
     app.whenReady().then(() => {
         registerProtocolHandler();
+        buildAppMenu();
         githubToken = loadStoredToken();
         createWindow();
 
@@ -214,7 +258,10 @@ ipcMain.handle('submit-file-transcript', async (event, formData) => {
     if (!githubToken) {
         throw new Error('Please sign in with GitHub first.');
     }
-    return apiRequest('POST', '/transcript/file', { body: { file: formData.file }, token: githubToken });
+    return apiRequest('POST', '/transcript/file', { 
+        body: { filename: formData.filename, content: formData.content }, 
+        token: githubToken 
+    });
 })
 
 ipcMain.handle('submit-accepted-issues', async (event, issues) => {

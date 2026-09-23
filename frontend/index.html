@@ -5,84 +5,106 @@
         <title>Communications Helper Agent</title>
         <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';"/>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="styles.css">
     </head>
     <body>
-        <nav class="navbar bg-body-tertiary">
-            <div class="container-fluid">
-                <ul class="nav nav-underline">
-                    <li class="nav-item">
-                        <a class="nav-link active" id="current-tab">Transcript Submission</a>
-                    </li>
-                </ul>
-                <span class="navbar-brand mb-0 h1">Communications Helper Agent</span>
+        <nav class="navbar app-navbar shadow-sm">
+            <div class="container-fluid px-4">
+                <span class="navbar-brand app-brand mb-0 h1">Communications Helper Agent</span>
+                <span id="current-tab" class="app-current-tab">Transcript Submission</span>
                 <button id="github-signin" class="btn btn-dark">Sign in with GitHub</button>
             </div>
         </nav>
-        <div class="container mt-2 border" id="transcript-submission">
-            <div class="col">
-                <div class="row d-flex flex-column align-items-center">
-                    <form id="file-transcript">
-                        <label for="file" class="form-label">Upload Meeting Transcript File: </label>
-                        <input type="file" id="file" name="file" class="form-control mt-2">
-                        <input type="submit" value="Upload" class="btn btn-primary mt-2">
-                    </form>
+        <div class="container app-container my-4" id="transcript-submission">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="card app-card h-100">
+                        <div class="card-body">
+                            <h6 class="app-eyebrow mb-3">Submit Transcript</h6>
+                            <form id="file-transcript" class="mb-4">
+                                <label for="file" class="form-label app-label">Upload Meeting Transcript File</label>
+                                <input type="file" id="file" name="file" class="form-control mt-2">
+                                <input type="submit" value="Upload" class="btn btn-primary mt-3">
+                            </form>
+                            <div class="app-divider my-3"><span>OR</span></div>
+                            <form id="text-transcript">
+                                <label for="transcript" class="form-label app-label">Meeting Transcript</label>
+                                <textarea id="transcript" name="transcript" rows="10" class="form-control mt-2"></textarea>
+                                <input type="submit" value="Submit" class="btn btn-primary mt-3">
+                            </form>
+                        </div>
+                    </div>
                 </div>
-                <div class="row justify-content-center bg-light my-3 mx-2 p-2 border">
-                    - OR -
-                </div>
-                <div class="row d-flex flex-column align-items-center">
-                    <form id="text-transcript">
-                        <label for="transcript" class="form-label">Meeting Transcript: </label>
-                        <textarea id="transcript" name="transcript" rows="10" cols="50" class="form-control"></textarea>
-                        <input type="submit" value="Submit" class="btn btn-primary mt-2">
-                    </form>
-                </div>
-            </div>
-            <div class="col">
-                <div class="col d-flex flex-column align-items-center my-3">
-                    <pre id="result-area"></pre>
+                <div class="col-lg-6">
+                    <div class="card app-card h-100">
+                        <div class="card-body">
+                            <h6 class="app-eyebrow mb-3">Status</h6>
+                            <pre id="result-area" class="app-result-area"></pre>
+                        </div>
+                    </div>
                 </div>
             </div>
             <script src="renderer.js"></script>
         </div>
-        <div class="container d-none mt-2 border" id="issue-review">
-            <form>
-                <div class="row align-items-center justify-content-center mt-3">
-                    <div class="col-auto">
-                        <input type="text" id="repo-owner" placeholder="Repository Owner" class="form-control" size="30">
+        <div class="container app-container d-none my-4" id="issue-review">
+            <div class="card app-card">
+                <div class="card-body">
+                    <h6 class="app-eyebrow mb-3">Review Proposed Issue</h6>
+                    <form class="row g-2 align-items-end justify-content-center mb-1">
+                        <div class="col-auto">
+                            <label for="repo-owner" class="form-label app-label">Repository Owner <span class="text-danger">*</span></label>
+                            <input type="text" id="repo-owner" placeholder="Repository Owner" class="form-control" size="30">
+                        </div>
+                        <div class="col-auto pb-2">
+                            /
+                        </div>
+                        <div class="col-auto">
+                            <label for="repo-name" class="form-label app-label">Repository Name <span class="text-danger">*</span></label>
+                            <input type="text" id="repo-name" placeholder="Repository Name" class="form-control" size="120">
+                        </div>
+                    </form>
+                    <div class="row justify-content-center mb-2">
+                        <div class="col-auto">
+                            <div id="repo-required-warning" class="text-danger small d-none">Repository owner and name are required.</div>
+                        </div>
                     </div>
-                    <div class="col-auto">
-                        /
+                    <div class="row justify-content-center">
+                        <div class="col-12 col-lg-9 d-flex flex-column">
+                            <label for="issue-title" class="form-label app-label">Title</label>
+                            <input type="text" id="issue-title" class="form-control form-control-lg" placeholder="Issue Title">
+                            <label for="issue-description" class="form-label app-label mt-2">Description</label>
+                            <textarea id="issue-description" class="form-control" placeholder="Issue Description"></textarea>
+                            <label for="issue-labels" class="form-label app-label mt-2">Type</label>
+                            <input type="text" id="issue-labels" class="form-control" placeholder="Issue Labels (comma-separated)">
+                            <label for="issue-tags" class="form-label app-label mt-2">Tags</label>
+                            <input type="text" id="issue-tags" class="form-control" placeholder="Issue Tags (comma-separated)">
+                            <label for="issue-priority" class="form-label app-label mt-2">Priority</label>
+                            <input type="text" id="issue-priority" class="form-control" placeholder="Issue Priority">
+                            <label for="issue-assignee" class="form-label app-label mt-2">Assignee</label>
+                            <input type="text" id="issue-assignee" class="form-control" placeholder="Issue Assignee">
+                            <div class="app-meta-panel mt-3">
+                                <div class="app-meta-item"><span class="app-meta-label">Assignee Confidence</span><span id="issue-assignee-confidence">...</span></div>
+                                <div class="app-meta-item"><span class="app-meta-label">Suggested Repository</span><span id="issue-suggested-repo">...</span></div>
+                                <div class="app-meta-item"><span class="app-meta-label">Status</span><span id="issue-status">...</span></div>
+                                <div class="app-meta-item app-meta-item-full"><span class="app-meta-label">Source Excerpt</span><span id="issue-source-excerpt" class="app-source-excerpt">...</span></div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-auto">
-                        <input type="text" id="repo-name" placeholder="Repository Name" class="form-control" size="120">
+                    <div class="row justify-content-around mt-4 mb-2">
+                        <div class="col-auto">
+                            <button id="decline-issue" class="btn btn-outline-danger px-4">Decline</button>
+                        </div>
+                        <div class="col-auto">
+                            <button id="accept-issue" class="btn btn-success px-4">Accept</button>
+                        </div>
                     </div>
-                </div>
-            </form>
-            <div class="row align-items-center justify-content-center mt-3">
-                <div class="col d-flex flex-column">
-                    <input type="text" id="issue-title" class="form-control" placeholder="Issue Title">
-                    <textarea id="issue-description" class="form-control mt-2" placeholder="Issue Description"></textarea>
-                    <input type="text" id="issue-labels" class="form-control mt-2" placeholder="Issue Labels (comma-separated)">
-                    <input type="text" id="issue-tags" class="form-control mt-2" placeholder="Issue Tags (comma-separated)">
-                    <input type="text" id="issue-priority" class="form-control mt-2" placeholder="Issue Priority">
-                    <input type="text" id="issue-assignee" class="form-control mt-2" placeholder="Issue Assignee">
-                    <div>LLM Assignee Confidence: <span id="issue-assignee-confidence">...</span></div>
-                    <div>Suggested Repository: <span id="issue-suggested-repo">...</span></div>
-                    <div>Source Excerpt: <span id="issue-source-excerpt">...</span></div>
-                    <div>Status: <span id="issue-status">...</span></div>
-                </div>
-            </div>
-            <div class="row justify-content-around mt-3 mb-3">
-                <div class="col-auto">
-                    <button id="decline-issue" class="btn btn-danger">Decline</button>
-                </div>
-                <div class="col-auto">
-                    <button id="accept-issue" class="btn btn-success">Accept</button>
                 </div>
             </div>
         </div>
-        <div class="container d-none mt-2" id="transcript-summary">
+        <div class="container app-container d-none my-4" id="transcript-summary">
 
         </div>
     </body>

@@ -1,14 +1,28 @@
 import os
 import secrets
 import time
+import asyncio
+import base64
+import io
+import traceback
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from communications_helper_agent.llm.service import ask_with_tools
-from communications_helper_agent.llm.system_prompts import MEETING_TO_ISSUES_PROMPT
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
+from communications_helper_agent.llm.service import ask, ask_with_tools
+from communications_helper_agent.llm.system_prompts import (
+    MEETING_TO_ISSUES_PROMPT, 
+    CREATE_ISSUES_PROMPT, 
+    MEETING_SUMMARY_PROMPT
+)
 from communications_helper_agent.mcp.github import connect_to_github_mcp, get_me_tool
 
 load_dotenv()
@@ -19,6 +33,16 @@ GITHUB_OAUTH_CLIENT_SECRET = os.getenv("GITHUB_OAUTH_CLIENT_SECRET")
 STATE_TTL_SECONDS = 600
 
 app = FastAPI()
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()  # still prints for whoever has terminal access
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
+
 
 # In-memory CSRF state store: state -> expiry timestamp. Fine for a single-user
 # local desktop app talking to a loopback-only server.
@@ -114,20 +138,68 @@ async def transcript_text(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="Missing transcript text")
 
-    result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    return {"result": _extract_text(result)}
+    try:
+        issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+        issues_text = _extract_text(issues_result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
+
+    try:
+        summary_text = ask(text, system=MEETING_SUMMARY_PROMPT)
+    except Exception as e:
+        summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
+
+    return {
+        "result": issues_text,
+        "summary": summary_text
+    }
 
 
 @app.post("/transcript/file")
 async def transcript_file(request: Request):
     token = _get_bearer_token(request)
     body = await request.json()
-    text = body.get("file", "")
-    if not text:
-        raise HTTPException(status_code=400, detail="Missing transcript file contents")
+    filename = body.get("filename", "")
+    b64content = body.get("content", "")
+    
+    if not b64content:
+        raise HTTPException(status_code=400, detail="Missing file content")
 
-    result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    return {"result": _extract_text(result)}
+    try:
+        file_bytes = base64.b64decode(b64content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 content")
+
+    text = ""
+    if filename.lower().endswith(".pdf"):
+        if not PdfReader:
+            raise HTTPException(status_code=500, detail="pypdf is not installed")
+        try:
+            pdf = PdfReader(io.BytesIO(file_bytes))
+            text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+    else:
+        text = file_bytes.decode("utf-8", errors="replace")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No readable text found in file")
+
+    try:
+        issues_result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+        issues_text = _extract_text(issues_result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
+
+    try:
+        summary_text = ask(text, system=MEETING_SUMMARY_PROMPT)
+    except Exception as e:
+        summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
+
+    return {
+        "result": issues_text,
+        "summary": summary_text
+    }
 
 
 def _extract_text(result) -> str:
@@ -142,9 +214,5 @@ async def issues_accepted(request: Request):
     issues = body.get("issues", [])
     if not issues:
         raise HTTPException(status_code=400, detail="Missing accepted issues")
-
-    # Here you would implement the logic to handle the accepted issues,
-    # such as creating them in GitHub using the provided token.
-    # For now, we'll just return a success message.
 
     return {"status": "success", "accepted_issues": issues}

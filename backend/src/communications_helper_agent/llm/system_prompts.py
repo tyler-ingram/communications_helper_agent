@@ -89,3 +89,14 @@ If you cannot match to a repo then default to communications_helper_agent. Then 
 If parts of the response are null leave them blank. Return the output of the tool calls as your response List the target repo and approved issue title in response.
 Only report the issue as created after create_github_issue successfully returns. Do not merely describe or propose the issue. You must call create_github_issue."
 """
+
+MEETING_SUMMARY_PROMPT = """You are an expert executive assistant.
+Read the provided meeting transcript and write a concise, professional summary.
+Your summary must include:
+1. The overarching topic and goal of the meeting.
+2. Key decisions made or consensus reached.
+3. The general outcome or next steps.
+
+Format the summary as 1-3 well-written paragraphs. Do not use markdown lists if paragraphs flow better.
+Return ONLY the summary text. Do not wrap it in JSON.
+"""
