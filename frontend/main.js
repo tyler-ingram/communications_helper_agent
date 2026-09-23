@@ -258,7 +258,10 @@ ipcMain.handle('submit-file-transcript', async (event, formData) => {
     if (!githubToken) {
         throw new Error('Please sign in with GitHub first.');
     }
-    return apiRequest('POST', '/transcript/file', { body: { file: formData.file }, token: githubToken });
+    return apiRequest('POST', '/transcript/file', { 
+        body: { filename: formData.filename, content: formData.content }, 
+        token: githubToken 
+    });
 })
 
 ipcMain.handle('submit-accepted-issues', async (event, issues) => {

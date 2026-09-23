@@ -57,23 +57,22 @@ document.getElementById('text-transcript').addEventListener('submit', async (eve
         await beginSignIn();
         return;
     }
-
     const transcriptText = document.getElementById('transcript').value;
     if (!transcriptText.trim()) {
         showError('Please add your transcript first.');
         return;
     }
-
     const formData = {
         text: transcriptText
     }
 
+    resultArea.innerText = 'Processing transcript...';
     showStatus('Processing transcript...');
     textSubmitButton.disabled = true
     fileSubmitButton.disabled = true
     try {
         const response = await window.api.submitTextTranscript(formData);
-        handleTranscriptSubmission(response)
+        handleTranscriptSubmission(response.result, response.summary)
     } catch (err) {
         showError(`Error: ${err.message}`);
     }
@@ -90,25 +89,38 @@ document.getElementById('file-transcript').addEventListener('submit', async (eve
         await beginSignIn();
         return;
     }
-
     const file = document.getElementById('file').files[0];
     if (!file) {
         showError('Please choose a transcript file first.');
         return;
     }
 
+    resultArea.innerText = 'Processing transcript...';
     showStatus('Processing transcript...');
     textSubmitButton.disabled = true
     fileSubmitButton.disabled = true
-    try {
-        const text = await file.text();
-        const response = await window.api.submitFileTranscript({ file: text });
-        handleTranscriptSubmission(response)
-    } catch (err) {
-        showError(`Error: ${err.message}`);
-    }
-    textSubmitButton.disabled = false
-    fileSubmitButton.disabled = false
+    
+    const reader = new FileReader();
+    reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        try {
+            const response = await window.api.submitFileTranscript({ 
+                filename: file.name, 
+                content: base64 
+            });
+            handleTranscriptSubmission(response.result, response.summary);
+        } catch (err) {
+            showError(`Error: ${err.message}`);
+        }
+        textSubmitButton.disabled = false
+        fileSubmitButton.disabled = false
+    };
+    reader.onerror = () => {
+        showError('Failed to read file.');
+        textSubmitButton.disabled = false
+        fileSubmitButton.disabled = false
+    };
+    reader.readAsDataURL(file);
 })
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -214,11 +226,16 @@ function priorityBadgeClass(priority) {
     }
 }
 
-function populateAcceptedIssueSummary(acceptedIssues) {
+function populateAcceptedIssueSummary(acceptedIssues, summaryText) {
     console.log("Populating accepted issue summary with issues:", acceptedIssues);
+    
+    const formattedSummary = summaryText ? summaryText.replace(/\n/g, '<br>') : 'No summary generated.';
+    
     let summaryContent = `
         <div class="app-summary-header mb-4">
-            <h3 class="mb-1">Accepted Issues Summary</h3>
+            <h3 class="mb-1">Meeting Summary</h3>
+            <p class="text-muted mb-4" style="line-height: 1.6;">${formattedSummary}</p>
+            <h3 class="mb-1 mt-5">Accepted Issues Summary</h3>
             <p class="text-muted mb-0">The following issues have been accepted:</p>
         </div>
         <div class="accordion app-accordion" id="accepted-issues-accordion">
@@ -300,12 +317,12 @@ async function acceptIssues() {
     })
 }
 
-async function handleTranscriptSubmission(response) {
+async function handleTranscriptSubmission(issueResult, summaryText) {
     hideElementById('transcript-submission');
     showElementById('issue-review');
     currentTab.innerText = 'Issue Review';
     let acceptedIssues = [];
-    for (const proposedIssue of JSON.parse(response.result)) {
+    for (const proposedIssue of JSON.parse(issueResult)) {
         const issueResponse = await proposedIssueReview(proposedIssue);
         if (issueResponse) {
             acceptedIssues.push(issueResponse);
@@ -317,8 +334,7 @@ async function handleTranscriptSubmission(response) {
     hideElementById('issue-review');
     showElementById('transcript-summary');
     currentTab.innerText = 'Transcript Summary';
-    populateAcceptedIssueSummary(acceptedIssues);
-
+    populateAcceptedIssueSummary(acceptedIssues, summaryText);
 
     const submitIssues = await acceptIssues()
     hideElementById('transcript-summary');
@@ -328,12 +344,17 @@ async function handleTranscriptSubmission(response) {
         const submissionResult = await window.api.submitAcceptedIssues(acceptedIssues);
         if (submissionResult.status === 'success') {
             console.log('Accepted issues submitted successfully.');
-            showStatus('Accepted issues submitted successfully.');
+            resultArea.innerText = 'Accepted issues submitted successfully.';
+            resultMessage = createIssueSubmissionResults(submissionResult.result)
+            showStatus('Accepted issues successfully processed.');
+            submissionResults.innerHTML = resultMessage
         }  else {
             console.error('Failed to submit accepted issues:', submitIssues.error);
+            resultArea.innerText = `Failed to submit accepted issues: ${submitIssues.error}`;
             showError(`Failed to submit accepted issues: ${submitIssues.error}`);
         }
     } else {
+        resultArea.innerText = 'Accepted issues submission canceled by user.';
         showStatus('Accepted issues submission canceled by user.');
     }
 }
