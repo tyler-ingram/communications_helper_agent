@@ -4,9 +4,11 @@ import time
 import asyncio
 import base64
 import io
+import traceback
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -31,6 +33,16 @@ GITHUB_OAUTH_CLIENT_SECRET = os.getenv("GITHUB_OAUTH_CLIENT_SECRET")
 STATE_TTL_SECONDS = 600
 
 app = FastAPI()
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()  # still prints for whoever has terminal access
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
+
 
 # In-memory CSRF state store: state -> expiry timestamp. Fine for a single-user
 # local desktop app talking to a loopback-only server.
