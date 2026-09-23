@@ -17,7 +17,7 @@ try:
 except ImportError:
     PdfReader = None
 
-from communications_helper_agent.llm.service import ask_with_tools
+from communications_helper_agent.llm.service import ask, ask_with_tools
 from communications_helper_agent.llm.system_prompts import (
     MEETING_TO_ISSUES_PROMPT, 
     CREATE_ISSUES_PROMPT, 
@@ -145,8 +145,7 @@ async def transcript_text(request: Request):
         raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
 
     try:
-        summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-        summary_text = _extract_text(summary_result)
+        summary_text = ask(text, system=MEETING_SUMMARY_PROMPT)
     except Exception as e:
         summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
 
@@ -193,8 +192,7 @@ async def transcript_file(request: Request):
         raise HTTPException(status_code=500, detail=f"Issue generation failed: {type(e).__name__}: {e}")
 
     try:
-        summary_result = await ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
-        summary_text = _extract_text(summary_result)
+        summary_text = ask(text, system=MEETING_SUMMARY_PROMPT)
     except Exception as e:
         summary_text = f"[Summary generation failed: {type(e).__name__}: {e}]"
 
