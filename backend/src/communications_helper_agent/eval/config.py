@@ -20,8 +20,8 @@ RESULTS_ROOT = BACKEND_ROOT / ".claude" / "hillclimb" / "meeting_to_issues"
 
 # Everything runs on LM Studio -- no API key, no per-case cost.
 #
-# None means "whatever llm.client.DEFAULT_MODEL resolves to" ($LM_MODEL, else
-# qwen/qwen3-4b-2507). Override the pipeline per run with --model.
+# None means "whatever FALLBACK_MODEL is" ($LM_MODEL takes precedence).
+# Override the pipeline per run with --model.
 PIPELINE_MODEL: str | None = os.getenv("LM_MODEL") or None
 
 
@@ -31,7 +31,7 @@ PIPELINE_MODEL: str | None = os.getenv("LM_MODEL") or None
 # raises at import time when GITHUB_PERSONAL_ACCESS_TOKEN is unset. The eval
 # never touches GitHub, so it shouldn't need a GitHub token to start.
 # Re-point at the import once that module defers its token check.
-FALLBACK_MODEL = "qwen/qwen3-4b-2507"
+FALLBACK_MODEL = "qwen/qwen3-4b-thinking-2507"
 
 
 def _default_judge_model() -> str:
@@ -52,8 +52,11 @@ JUDGE_MODEL = _default_judge_model()
 # the eval can tell you, so read what it produces before trusting a score.
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL") or JUDGE_MODEL
 
-# LM Studio context window, matching llm/client.py.
-CONTEXT_LENGTH = 128000
+# LM Studio context window. llm/client.py asks for 128000, but a 4B model
+# loaded at that length eats a lot of memory for no benefit here -- the
+# longest input is a transcript plus criteria, well under 32k. Raise it if a
+# case ever trips the limit.
+CONTEXT_LENGTH = 32768
 
 DIFFICULTY_MIX = {"clean": 3, "messy": 4, "hard": 2, "edge": 1}
 

@@ -9,7 +9,11 @@ was a real speaker -- is graded by code in `graders.py`. Don't duplicate those
 here; a model call to check `1 <= priority <= 5` is wasted money and adds noise
 to a deterministic answer.
 
-Uses structured outputs, so the parse is deterministic.
+The schema is passed to LM Studio, but enforcement is best-effort: a
+reasoning model emits a `<think>` block that cannot be constrained, so the
+server silently disables it. The USER section therefore also spells the shape
+out in the prompt, and `judge_client._extract_json` pulls the object out of
+whatever wrapping comes back.
 
 ## SYSTEM
 
@@ -84,4 +88,10 @@ Omission is not unfaithfulness; that is what recall measures.
 {issues}
 </proposed_issues>
 
-Grade the proposed issues. Return JSON matching the schema.
+Grade the proposed issues.
+
+Return ONLY a JSON object, with no commentary before or after it:
+
+{"issue_recall": <0.0-1.0>, "issue_precision": <0.0-1.0>, "faithfulness": <0.0-1.0>, "reasoning": "<why, naming the specific item or issue behind each score below 1.0>"}
+
+All three scores are numbers, not strings.
