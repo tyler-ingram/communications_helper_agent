@@ -1,14 +1,26 @@
 import os
 import secrets
 import time
+import asyncio
+import base64
+import io
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
 from communications_helper_agent.llm.service import ask_with_tools
-from communications_helper_agent.llm.system_prompts import MEETING_TO_ISSUES_PROMPT
+from communications_helper_agent.llm.system_prompts import (
+    MEETING_TO_ISSUES_PROMPT, 
+    CREATE_ISSUES_PROMPT, 
+    MEETING_SUMMARY_PROMPT
+)
 from communications_helper_agent.mcp.github import connect_to_github_mcp, get_me_tool
 
 load_dotenv()
@@ -114,20 +126,56 @@ async def transcript_text(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="Missing transcript text")
 
-    result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    return {"result": _extract_text(result)}
+    issues_task = ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+    summary_task = ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
+    
+    issues_result, summary_result = await asyncio.gather(issues_task, summary_task)
+    
+    return {
+        "result": _extract_text(issues_result), 
+        "summary": _extract_text(summary_result)
+    }
 
 
 @app.post("/transcript/file")
 async def transcript_file(request: Request):
     token = _get_bearer_token(request)
     body = await request.json()
-    text = body.get("file", "")
-    if not text:
-        raise HTTPException(status_code=400, detail="Missing transcript file contents")
+    filename = body.get("filename", "")
+    b64content = body.get("content", "")
+    
+    if not b64content:
+        raise HTTPException(status_code=400, detail="Missing file content")
 
-    result = await ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
-    return {"result": _extract_text(result)}
+    try:
+        file_bytes = base64.b64decode(b64content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 content")
+
+    text = ""
+    if filename.lower().endswith(".pdf"):
+        if not PdfReader:
+            raise HTTPException(status_code=500, detail="pypdf is not installed")
+        try:
+            pdf = PdfReader(io.BytesIO(file_bytes))
+            text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+    else:
+        text = file_bytes.decode("utf-8", errors="replace")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No readable text found in file")
+
+    issues_task = ask_with_tools(prompt=text, system=MEETING_TO_ISSUES_PROMPT, github_token=token)
+    summary_task = ask_with_tools(prompt=text, system=MEETING_SUMMARY_PROMPT, github_token=token)
+    
+    issues_result, summary_result = await asyncio.gather(issues_task, summary_task)
+    
+    return {
+        "result": _extract_text(issues_result), 
+        "summary": _extract_text(summary_result)
+    }
 
 
 def _extract_text(result) -> str:
