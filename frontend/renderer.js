@@ -1,6 +1,7 @@
 const signInButton = document.getElementById('github-signin');
 const authStatus = document.getElementById('auth-status');
 const resultArea = document.getElementById('result-area');
+const submissionResults = document.getElementById('submission-results')
 const currentTab = document.getElementById('current-tab');
 const fileSubmitButton = document.getElementById('file-transcript')
 const textSubmitButton = document.getElementById('text-transcript')
@@ -328,7 +329,9 @@ async function handleTranscriptSubmission(response) {
         const submissionResult = await window.api.submitAcceptedIssues(acceptedIssues);
         if (submissionResult.status === 'success') {
             console.log('Accepted issues submitted successfully.');
-            showStatus('Accepted issues submitted successfully.');
+            resultMessage = createIssueSubmissionResults(submissionResult.result)
+            showStatus('Accepted issues successfully processed.');
+            submissionResults.innerHTML = resultMessage
         }  else {
             console.error('Failed to submit accepted issues:', submitIssues.error);
             showError(`Failed to submit accepted issues: ${submitIssues.error}`);
@@ -336,4 +339,21 @@ async function handleTranscriptSubmission(response) {
     } else {
         showStatus('Accepted issues submission canceled by user.');
     }
+}
+
+function createIssueSubmissionResults(issues) {
+    console.log(issues)
+    
+    let responseResults = `<div class="col">`
+    for (const issue of issues) {
+        const parsedIssue = JSON.parse(issue)
+        responseResults += `
+            <div class="row text-wrap">
+                <span class="fw-bold ${parsedIssue.issueStatus === "created" ? "text-success" : "text-danger"}">${parsedIssue.issueTitle}</span>
+                <span class="fw-semibold">${parsedIssue.issueMessage}</span>
+            </div>
+        `
+    }
+    responseResults += `</div>`
+    return responseResults
 }

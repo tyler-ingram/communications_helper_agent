@@ -13,12 +13,17 @@ def main():
     data[0]["suggested_repo"] = "communications_helper_agent"
     approved_issues = [issue for issue in data if issue.get("status") == "approved"]
     prompt = f"""
-Here is the approved issue data:
-<issue>
-{approved_issues}
-</issue>
-Use the GitHub tools according to the instructions.
-"""
+    Here is the approved issue data:
+    """
+    for issue in approved_issues:
+        prompt += f"""
+        <issue>
+        {issue}
+        </issue>
+        """
+    prompt += """
+    Use the GitHub tools according to the instructions.
+    """
     tool_response = asyncio.run(ask_with_tools(prompt, system=CREATE_ISSUES_PROMPT))
     print(tool_response)
 

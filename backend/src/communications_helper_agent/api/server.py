@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from communications_helper_agent.llm.service import ask_with_tools
-from communications_helper_agent.llm.system_prompts import MEETING_TO_ISSUES_PROMPT
+from communications_helper_agent.llm.system_prompts import MEETING_TO_ISSUES_PROMPT, CREATE_ISSUES_PROMPT
 from communications_helper_agent.mcp.github import connect_to_github_mcp, get_me_tool
 
 load_dotenv()
@@ -143,8 +143,19 @@ async def issues_accepted(request: Request):
     if not issues:
         raise HTTPException(status_code=400, detail="Missing accepted issues")
 
-    # Here you would implement the logic to handle the accepted issues,
-    # such as creating them in GitHub using the provided token.
-    # For now, we'll just return a success message.
+    issue_creation_results = []
 
-    return {"status": "success", "accepted_issues": issues}
+    for issue in issues:
+        prompt = f"""
+        Here is the approved issue data:
+        <issue>
+        {issue}
+        </issue>
+        Use the GitHub tools according to the instructions.
+        """
+        response = await ask_with_tools(prompt=prompt, system=CREATE_ISSUES_PROMPT, github_token=token)
+        print(response)
+        issue_creation_results.append(_extract_text(response))
+    
+
+    return {"status": "success", "result": issue_creation_results}
