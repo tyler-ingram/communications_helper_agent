@@ -14,15 +14,24 @@ as you like.
 The extraction prompt is read live from `llm/system_prompts.py`, so it cannot
 drift out from under the eval.
 
-## The three stages
+## The stages
 
 ```
+smoke_test.py        ->  pass/fail          is the harness wired up at all?
 generate_dataset.py  ->  dataset/*.json     write the test cases (once, offline)
 check_judge.py       ->  pass/fail          prove the judge grades correctly
 run_eval.py          ->  results.jsonl      run the pipeline, grade each output
 ```
 
-All three run against LM Studio, which must be up with the model loaded.
+Everything except the first three offline smoke checks runs against LM Studio,
+which must be up with the model loaded.
+
+**Start with `smoke_test.py`.** It runs six checks cheapest-first — imports,
+prompt, graders, LM Studio reachable, structured output, then one tiny
+transcript end to end — and stops at the first failure with the fix. It needs
+no dataset, writes nothing, and takes about a minute. If something is wrong,
+this tells you which layer rather than leaving you to guess from a run that
+produced nothing.
 
 ## Case format
 
@@ -114,6 +123,9 @@ deterministic answer.
 ```bash
 cd backend
 
+# 0. is anything wired up? (~1 min, needs no dataset)
+uv run python -m communications_helper_agent.eval.smoke_test
+
 # 1. generate the dataset (once)
 uv run python -m communications_helper_agent.eval.generate_dataset
 
@@ -191,9 +203,10 @@ are *right*. Only reading them does that.
 0-1 metric. Treat differences smaller than that as noise, not improvement. If
 you need to detect a smaller change, raise `--reps` or add cases.
 
-**LM Studio must be running** with the model loaded. If it is not, every case
-lands in `errors.jsonl` as `harness_error` rather than scoring 0 — which is the
-point of the sidecar, but check there first if a run comes back empty.
+**LM Studio must be running** with the model loaded, and its local server
+enabled (Developer tab → Status: Running). If it is not, every case lands in
+`errors.jsonl` as `harness_error` rather than scoring 0 — which is the point of
+the sidecar, but run `smoke_test.py` first if a run comes back empty.
 
 **A small local model may not hold the format.** `qwen3-4b` is being asked for
 a 10-field JSON array with a reasoning preamble. If `schema_valid` or

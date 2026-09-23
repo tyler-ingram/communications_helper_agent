@@ -35,10 +35,13 @@ Python is pinned to 3.13 (`requires-python = ">=3.13"`).
 Eval harness (see `src/communications_helper_agent/eval/README.md`):
 
 ```bash
-uv run python -m communications_helper_agent.eval.generate_dataset   # write cases (costs money)
-uv run python -m communications_helper_agent.eval.check_judge        # verify judge before paying
-uv run python -m communications_helper_agent.eval.run_eval --reps 2  # run + grade (needs LM Studio up)
+uv run python -m communications_helper_agent.eval.smoke_test         # is the harness wired up? (~1 min)
+uv run python -m communications_helper_agent.eval.generate_dataset   # write cases
+uv run python -m communications_helper_agent.eval.check_judge        # verify the judge grades correctly
+uv run python -m communications_helper_agent.eval.run_eval --reps 2  # run + grade
 ```
+
+All but the first three smoke checks need LM Studio up with the model loaded and its local server enabled. `smoke_test.py` is the first thing to run when anything looks broken — six checks, cheapest first, stopping at the first failure with the fix.
 
 No test or lint commands exist yet. When adding them, prefer `uv add --dev pytest` and `uv run pytest` (single test: `uv run pytest tests/test_x.py::test_name`) so tooling stays inside the uv-managed environment.
 
